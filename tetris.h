@@ -1,5 +1,6 @@
 #include "led_matrix.h"
-
+#include "random.h"
+/*
 #define TET_I 0
 #define TET_J 1
 #define TET_L 2
@@ -8,33 +9,29 @@
 #define TET_T 5
 #define TET_Z 6
 
-typedef uint8_t tetromino_t;
-
 typedef struct {
-    uint8_t x;
-    uint8_t y;
-} position_t;
+    uint8_t x_pos;
+    uint8_t y_pos;
+    uint8_t rotation;
+    uint8_t type;
+} tetromino_t;
 
-tetromino_t tet_random() {
-    return 0;
+void tet_init_tetromino(tetromino_t *t, rand_state_t *random) {
+    uint32_t random_data = rand_xorshift32(random);
+
+    t->rotation = random_data & 0x7;
+    // we only have 4 rotation states, so we correct it if its above 3
+    if (t->rotation > 3) {
+        t->rotation = 7 - t->rotation;
+    }
+
+    t->type = random_data & 0x38 >> 3;
+    // we have 7 types of stones (0..6), so we set it to a valid stone, when
+    // its above 6
+    if (t->type == 7) {
+        t->type = TET_O;
+    }
+    t->x_pos = (random_data & 0x1C0) >> 6;
+    t->y_pos = 0;
 }
-
-typedef struct {
-    ledm_t* matrices;
-    uint8_t width;
-    uint8_t height;
-    
-    tetromino_t next;
-    position_t* next_position;
-} tetris_t;
-
-void tet_init(tetris_t* t) {
-    t->next = tet_random();
-
-    position_t next_pos = {
-        .x = 0,
-        .y = 0
-    };
-
-    t->next_position = &next_pos;
-}
+*/

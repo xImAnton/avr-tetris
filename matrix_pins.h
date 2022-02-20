@@ -1,3 +1,7 @@
+/*
+  pin definitions for tetris in my specific construction
+*/
+
 #define SR_A(name, d, c) shift_register_t name = { SR_SIZE_8 .ddr = &DDRA, .port = &PORTA, .clock = c, .data = d }
 #define SR_B(name, d, c) shift_register_t name = { SR_SIZE_8 .ddr = &DDRB, .port = &PORTB, .clock = c, .data = d }
 #define SR_C(name, d, c) shift_register_t name = { SR_SIZE_8 .ddr = &DDRC, .port = &PORTC, .clock = c, .data = d }
