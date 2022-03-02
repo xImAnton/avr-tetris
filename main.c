@@ -32,12 +32,17 @@ screen_t screen = {
 uint8_t x_pos = 4;
 uint8_t y_pos = 0;
 
+uint32_t score = 0;
+uint8_t speed = TICK_SPEED;
+
 ledm_letter_t gameover[] = {LEDM_G, LEDM_A, LEDM_M, LEDM_E, LEDM_SPACE, LEDM_O, LEDM_V, LEDM_E, LEDM_R, LEDM_EXCLAMATION, LEDM_SPACE}; // GAME OVER! 
 
 // register for pressed buttons to detect presses / releases
 uint8_t button_states = 0;
 // times, the timer ISR was executed
 volatile uint32_t time = 0;
+
+#define push_event_if_changed(btn) if ((new_states & (1 << btn)) && !(button_states & (1 << btn))) push_event(btn)
 
 ISR( TIMER0_OVF_vect ) {
     time++;
@@ -48,21 +53,10 @@ ISR( TIMER0_OVF_vect ) {
                           pin_read_bit(PINB, PB1) << BTN_DOWN;
 
     if (new_states != button_states) {
-        if ((new_states & (1 << BTN_RIGHT)) && !(button_states & (1 << BTN_RIGHT))) {
-            push_event(BTN_RIGHT);
-        }
-
-        if (((new_states & (1 << BTN_UP)) & 1) && !(button_states & (1 << BTN_UP))) {
-            push_event(BTN_UP);
-        }
-
-        if ((new_states & (1 << BTN_LEFT)) && !(button_states & (1 << BTN_LEFT))) {
-            push_event(BTN_LEFT);
-        }
-
-        if ((new_states & (1 << BTN_DOWN)) && !(button_states & (1 << BTN_DOWN))) {
-            push_event(BTN_DOWN);
-        }
+        push_event_if_changed(BTN_RIGHT);
+        push_event_if_changed(BTN_UP);
+        push_event_if_changed(BTN_LEFT);
+        push_event_if_changed(BTN_DOWN);
 
         button_states = new_states;
     }
@@ -95,8 +89,15 @@ uint8_t move(uint8_t x, uint8_t y) {
     return 1;
 }
 
+uint8_t is_full_row(screen_t *s, uint8_t y) {
+    for (uint8_t x = 0; x < s->width * 4; x++) {
+        if (!screen_is_set(s, x, y)) return 0;
+    }
+    return 1;
+}
+
 void run_game_tick() {
-    RUN_TIMED(TICK_SPEED, time);
+    RUN_TIMED(speed, time);
 
     // try to fall down, if successful, return
     if (move(x_pos, y_pos + 1)) return;
@@ -106,6 +107,23 @@ void run_game_tick() {
         screen_clear_all(&screen);
         ledm_show_word_rotating(matrices, 2, ledm_word(gameover), 200, LEDM_LEFT, 0);
         screen_clear_all(&screen);
+    }
+
+    // check if line was filled
+    if (is_full_row(&screen, y_pos)) {
+        for (uint8_t y = y_pos; y > 0; y--) {
+            for (uint8_t x = 0; x < screen.width * 4; x++) {
+                if (screen_is_set(&screen, x, y - 1)) {
+                    screen_set(&screen, x, y);
+                } else {
+                    screen_clear(&screen, x, y);
+                }
+            }
+        }
+        score++;
+        if (speed > 10) {
+            speed -= 2;
+        }
     }
 
     // create new dot at the top in a random column
