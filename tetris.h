@@ -1,94 +1,107 @@
-#include "led_matrix.h"
+#include "led_screen.h"
 #include "random.h"
+#include "tetrominos.h"
 
-#define DEFINE_TETROMINO(name, w, h, m) const tetromino_type_t tetromino_ ## name = { \
-    .width = w,                                                                  \
-    .height = h,                                                                 \
-    .vector = (const uint8_t **) &tet_ ## name,                                  \
-    .mirrored = m                                                                \
-}
-
-typedef struct {
-    uint8_t rotated_variants;
-    uint8_t width;
-    uint8_t height;
-    const uint8_t **vector;
-    uint8_t mirrored;
-} tetromino_type_t;
-
-const uint8_t tet_1_1[] = {1, 1};
-const uint8_t tet_1_1_1[] = {1, 1, 1};
-const uint8_t tet_0_1_0[] = {0, 1, 0};
-const uint8_t tet_1_0[] = {0, 1};
-const uint8_t tet_0_1_1[] = {0, 1, 1};
-const uint8_t tet_1_1_0[] = {1, 1, 0};
-const uint8_t tet_1_1_1_1[] = {1, 1, 1, 1};
-
-const uint8_t *tet_O[] = {
-    (const uint8_t *) &tet_1_1, (const uint8_t *) &tet_1_1
-};
-DEFINE_TETROMINO(O, 2, 2, 0);
-
-const uint8_t *tet_T[] = {
-    (const uint8_t *) &tet_1_1_1, (const uint8_t *) &tet_0_1_0
-};
-DEFINE_TETROMINO(T, 3, 2, 0);
-
-const uint8_t *tet_L[] = {
-    (const uint8_t *) &tet_1_0, (const uint8_t *) &tet_1_0, (const uint8_t *) &tet_1_1
-};
-DEFINE_TETROMINO(L, 2, 3, 1);
-
-const uint8_t *tet_Z[] = {
-    (const uint8_t *) &tet_0_1_1, (const uint8_t *) &tet_1_1_0
-};
-DEFINE_TETROMINO(Z, 3, 2, 1);
-
-const uint8_t *tet_I[] = {
-    (const uint8_t *) &tet_1_1_1_1
-};
-DEFINE_TETROMINO(I, 4, 1, 0);
-
-const tetromino_type_t *tetromino_types[] = {&tetromino_I, &tetromino_L, &tetromino_O, &tetromino_T, &tetromino_Z};
+#ifndef __tetris_h_included__
+#define __tetris_h_included__
 
 #define TETROMINO_ROTATION_TOP    0
 #define TETROMINO_ROTATION_LEFT   1
 #define TETROMINO_ROTATION_BOTTOM 2
 #define TETROMINO_ROTATION_RIGHT  3
 
-#define tetromino_is_mirrored(t) (((t)->flags & 0b100000) >> 5)
-#define tetromino_get_rotation(t) (((t)->flags & 0b11000) >> 3)
-#define tetromino_get_type(t) ((t)->flags & 0b111)
-#define tetromino_set_flags(t, type, rotation, mirrored) (t)->flags = (!!(mirrored) << 5) | (((rotation) & 0b11) << 3) | ((type) & 0b111)
-
 typedef struct {
     uint8_t x_pos;
     uint8_t y_pos;
-    /*
-      Bit 0..2 - Type
-      Bit 3..4 - Rotation
-      Bit    5 - Mirrored
-    */
-    uint8_t flags;
+    tetromino_type_t *type;
+    uint8_t rotation;
 } tetromino_t;
 
-void tet_init_tetromino(tetromino_t *t, rand_state_t *random) {
+void tet_init_tetromino(tetromino_t *t, rand_state_t *random, screen_t *s) {
     uint32_t random_data = rand_xorshift32(random);
 
     uint8_t rotation = random_data & 0b11;
+    rotation = TETROMINO_ROTATION_TOP;
     uint8_t type = (random_data & 0b11100) >> 2;
-    if (type > 4) {
-        type = 7 - type;
+    if (type == 7) {
+        type = 0;
     }
     const tetromino_type_t *tet_type = tetromino_types[type];
 
-    tetromino_set_flags(
-        t,
-        type,
-        rotation,
-        tet_type->mirrored ? (random_data & 0b100000) >> 5 : 0
-    );
+    t->type = (tetromino_type_t*) tet_type;
+    t->rotation = rotation;
 
     t->x_pos = (random_data & 0x1C0) >> 6;
+    if (t->x_pos + tet_type->width > (s->width * 4)) {
+        t->x_pos = s->width - 1;
+    }
+
     t->y_pos = 0;
 }
+
+#define asc(_var, _max) (int8_t _var = 0; _var < _max; _var++)
+#define desc(_var, _start) (int8_t _var = _start; _var >= 0; _var--)
+
+void tet_draw_tetromino(screen_t *s, tetromino_t *t) {
+    const tetromino_type_t *type = t->type;
+    uint8_t screen_x = t->x_pos;
+    uint8_t screen_y = t->y_pos;
+
+    switch (t->rotation) {
+        case TETROMINO_ROTATION_TOP:
+            for asc(x, type->width) {
+                for asc(y, type->height) {
+                    if (tet_pixel_is_set(type, x, y)) {
+                        screen_set(s, screen_x, screen_y);
+                    }
+                    screen_y++;
+                }
+                screen_x++;
+                screen_y = t->y_pos;
+            }
+            break;
+        case TETROMINO_ROTATION_LEFT:
+            for desc(x, type->width - 1) {                
+                for asc(y, type->height) {
+                    if (tet_pixel_is_set(type, x, y)) {
+                        screen_set(s, screen_x, screen_y);
+                    }
+                    screen_x++;
+                }
+                screen_y++;
+                screen_x = t->x_pos;
+            }
+            break;
+        case TETROMINO_ROTATION_BOTTOM:
+            for desc(x, type->width - 1) {
+                for desc(y, type->height - 1) {
+                    if (tet_pixel_is_set(type, x, y)) {
+                        screen_set(s, screen_x, screen_y);
+                    }
+                    screen_y++;
+                }
+                screen_x++;
+                screen_y = t->y_pos;
+            }
+            break;
+        case TETROMINO_ROTATION_RIGHT:
+            for asc(x, type->width) {
+                for desc(y, type->height - 1) {
+                    if (tet_pixel_is_set(type, x, y)) {
+                        screen_set(s, screen_x, screen_y);
+                    }
+                    screen_x++;
+                }
+                screen_y++;
+                screen_x = t->x_pos;
+            }
+            break;
+    }
+}
+
+void tetromino_rotate(tetromino_t *t) {
+    t->rotation++;
+    t->rotation &= 0b11;
+}
+
+#endif // not __tetris_h_included__

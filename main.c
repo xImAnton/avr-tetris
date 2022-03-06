@@ -96,8 +96,13 @@ uint8_t is_full_row(screen_t *s, uint8_t y) {
     return 1;
 }
 
+tetromino_t current_tet = {};
+
 void run_game_tick() {
     RUN_TIMED(speed, time);
+
+    tet_draw_tetromino(&screen, &current_tet);
+    return;
 
     // try to fall down, if successful, return
     if (move(x_pos, y_pos + 1)) return;
@@ -143,9 +148,14 @@ void process_events() {
                 move(x_pos - 1, y_pos);
                 break;
             case BTN_UP:
+                screen_clear_all(&screen);
+                tet_init_tetromino(&current_tet, &rand_state, &screen);
                 break;
             case BTN_DOWN: // drop as far as possible instantly
-                while (move(x_pos, y_pos + 1));
+                // while (move(x_pos, y_pos + 1));
+                screen_clear_all(&screen);
+                tetromino_rotate(&current_tet);
+                sr_set(&ulu, ~current_tet.rotation);
                 break;
         }
     }
@@ -176,7 +186,7 @@ int main(void) {
     x_pos = random_column();
     update_screen();
 
-    // tet_init_tetromino(&current_tet, &rand_state);
+    tet_init_tetromino(&current_tet, &rand_state, &screen);
 
     while (1) {
         run_game_tick();
