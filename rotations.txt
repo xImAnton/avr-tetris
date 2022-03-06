@@ -1,0 +1,42 @@
+for (let x = 0; x < 3; x++) {
+  for (let y = 0; y < 3; y++) {
+    process.stdout.write(arr[x][y] + " ")
+  }
+  process.stdout.write("\n")
+}
+1 1 1
+0 1 0
+0 1 0
+
+
+for (let y = 0; y < 3; y++) {
+  for (let x = 0; x < 3; x++) {
+    process.stdout.write(arr[x][y] + " ")
+  }
+  process.stdout.write("\n")
+}
+1 0 0
+1 1 1
+1 0 0
+
+
+for (let x = 2; x >= 0; x--) {
+  for (let y = 0; y < 3; y++) {
+    process.stdout.write(arr[x][y] + " ")
+  }
+  process.stdout.write("\n")
+}
+0 1 0
+0 1 0
+1 1 1
+
+
+for (let y = 2; y >= 0; y--) {
+  for (let x = 2; x >= 0; x--) {
+    process.stdout.write(arr[x][y] + " ")
+  }
+  process.stdout.write("\n")
+}
+0 0 1
+1 1 1
+0 0 1
