@@ -1,5 +1,6 @@
+#define RANDOM_USE_DEFAULT
+
 #include <libavr.h>
-#include <libshift.h>
 #include <led_matrix.h>
 #include <led_screen.h>
 #include <random.h>
@@ -7,8 +8,6 @@
 
 #include "tetris.h"
 #include "matrix_pins.h"
-
-#define arr(s, t) s, sizeof(s) / sizeof(t)
 
 // button event types + state flags
 #define BTN_DOWN  0
@@ -18,38 +17,34 @@
 
 #define TICK_SPEED 30
 
-ledm_t* matrices[] = {&ol, &or, &ml, &mr, &ul, &ur};
+ledm_t *matrices[] = {&ol, &or, &ml, &mr, &ul, &ur};
 
 screen_t screen = {
-    .matrices = matrices, 
+    .matrices = matrices,
     .height = 3,
     .width = 2,
 };
 
-// tetromino_t current_tet;
-
-// keep track of current dot position
-uint8_t x_pos = 4;
-uint8_t y_pos = 0;
-
 uint32_t score = 0;
 uint8_t speed = TICK_SPEED;
+tetromino_t current_tet = {};
 
-ledm_letter_t gameover[] = {LEDM_G, LEDM_A, LEDM_M, LEDM_E, LEDM_SPACE, LEDM_O, LEDM_V, LEDM_E, LEDM_R, LEDM_EXCLAMATION, LEDM_SPACE}; // GAME OVER! 
+ledm_letter_t gameover[] = {LEDM_G, LEDM_A, LEDM_M, LEDM_E, LEDM_SPACE, LEDM_O, LEDM_V, LEDM_E, LEDM_R,
+                            LEDM_EXCLAMATION, LEDM_SPACE}; // GAME OVER!
 
 // register for pressed buttons to detect presses / releases
 uint8_t button_states = 0;
 // times, the timer ISR was executed
 volatile uint32_t time = 0;
 
-#define push_event_if_changed(btn) if ((new_states & (1 << btn)) && !(button_states & (1 << btn))) push_event(btn)
+#define push_event_if_changed(btn) if ((new_states & (1 << (btn))) && !(button_states & (1 << (btn)))) push_event(btn)
 
-ISR( TIMER0_OVF_vect ) {
+ISR(TIMER0_OVF_vect) {
     time++;
 
     uint8_t new_states = (pin_read_bit(PINB, PB0) << BTN_RIGHT) | \
-                         (pin_read_bit(PINA, PA1) << BTN_UP)    | \
-                         (pin_read_bit(PINB, PB2) << BTN_LEFT)  | \
+                         (pin_read_bit(PINA, PA1) << BTN_UP) | \
+                         (pin_read_bit(PINB, PB2) << BTN_LEFT) | \
                           pin_read_bit(PINB, PB1) << BTN_DOWN;
 
     if (new_states != button_states) {
@@ -62,12 +57,21 @@ ISR( TIMER0_OVF_vect ) {
     }
 }
 
-// random generator
-rand_state_t rand_state;
-#define random_column() (rand_xorshift32(&rand_state) & 0b111000) >> 3 // mask by 0b111 to get numbers in range 0..7, is not very reliable
-
 void update_screen() {
-    screen_set(&screen, x_pos, y_pos);
+    tet_draw_tetromino(&screen, &current_tet);
+}
+
+typedef struct {
+    uint8_t new_x;
+    uint8_t new_y;
+    uint8_t is_occupied;
+} move_enum_payload_t;
+
+void check_occupied_proc(uint8_t screen_x, uint8_t screen_y, void *payload) {
+    move_enum_payload_t *pl = (move_enum_payload_t *) payload;
+    if (screen_is_set(&screen, screen_x + pl->new_x - current_tet.x_pos, screen_y + pl->new_y - current_tet.y_pos)) {
+        pl->is_occupied = 1;
+    }
 }
 
 /**
@@ -78,12 +82,29 @@ void update_screen() {
  * @return whether the move was successful (1) or not successful because of 
  *         obstruction (0)
  */
-uint8_t move(uint8_t x, uint8_t y) {
-    if (screen_is_set(&screen, x, y)) return 0;
+uint8_t move(uint8_t new_x, uint8_t new_y) {
+    move_enum_payload_t pl = {
+        .new_x = new_x,
+        .new_y = new_y,
+        .is_occupied = 0
+    };
 
-    screen_clear(&screen, x_pos, y_pos);
-    x_pos = x;
-    y_pos = y;
+    screen_enable_dry_mode(&screen);
+    tet_clear_tetromino(&screen, &current_tet);
+
+    tetromino_enum_pixels(&current_tet, &check_occupied_proc, (void *) &pl);
+
+    tet_draw_tetromino(&screen, &current_tet);
+    screen_disable_dry_mode(&screen);
+
+    if (pl.is_occupied) {
+        // tet_clear_tetromino(&screen, &current_tet);
+        return 0;
+    }
+
+    tet_clear_tetromino(&screen, &current_tet);
+    current_tet.x_pos = new_x;
+    current_tet.y_pos = new_y;
     update_screen();
 
     return 1;
@@ -96,66 +117,95 @@ uint8_t is_full_row(screen_t *s, uint8_t y) {
     return 1;
 }
 
-tetromino_t current_tet = {};
+void game_over() {
+    screen_clear_all(&screen);
+    ledm_show_word_rotating(matrices, 2, ledm_word(gameover), 100, LEDM_LEFT, 0);
+    screen_clear_all(&screen);
+
+    // don't try to catch up the missing ticks from showing the message
+    time = 0;
+
+    score = 0;
+    speed = TICK_SPEED;
+}
+
+void check_for_full_rows() {
+    for (uint8_t row = current_tet.y_pos; row < (current_tet.y_pos + current_tet.type->height); row++) {
+        while (is_full_row(&screen, row)) {
+            for (uint8_t y = row; y > 0; y--) {
+                for (uint8_t x = 0; x < screen.width * 4; x++) {
+                    if (screen_is_set(&screen, x, y - 1)) {
+                        screen_set(&screen, x, y);
+                    } else {
+                        screen_clear(&screen, x, y);
+                    }
+                }
+            }
+
+            // increase score (& speed) for every cleared line
+            score++;
+            /*if (speed > 10) {
+                speed -= 2;
+            }*/
+        }
+    }
+}
 
 void run_game_tick() {
     RUN_TIMED(speed, time);
 
-    tet_draw_tetromino(&screen, &current_tet);
-    return;
-
     // try to fall down, if successful, return
-    if (move(x_pos, y_pos + 1)) return;
+    if (move(current_tet.x_pos, current_tet.y_pos + 1)) return;
 
     // unsuccessful dot drop in row 1 == loss
-    if (y_pos == 1) {
-        screen_clear_all(&screen);
-        ledm_show_word_rotating(matrices, 2, ledm_word(gameover), 200, LEDM_LEFT, 0);
-        screen_clear_all(&screen);
+    if (current_tet.y_pos == 0) {
+        game_over();
+    } else {
+        check_for_full_rows();
     }
 
-    // check if line was filled
-    if (is_full_row(&screen, y_pos)) {
-        for (uint8_t y = y_pos; y > 0; y--) {
-            for (uint8_t x = 0; x < screen.width * 4; x++) {
-                if (screen_is_set(&screen, x, y - 1)) {
-                    screen_set(&screen, x, y);
-                } else {
-                    screen_clear(&screen, x, y);
-                }
-            }
-        }
-        score++;
-        if (speed > 10) {
-            speed -= 2;
-        }
-    }
-
-    // create new dot at the top in a random column
-    x_pos = random_column();
-    y_pos = 0;
-
+    tet_init_tetromino(&current_tet, &screen);
     update_screen();
+}
+
+void rotate_test_proc(uint8_t screen_x, uint8_t screen_y, void *free) {
+    if (screen_is_set(&screen, screen_x, screen_y)) {
+        *(uint8_t*) free = 0;
+    }
+}
+
+uint8_t can_rotate() {
+    uint8_t initial_rotation = current_tet.rotation;
+    uint8_t free = 1;
+    screen_enable_dry_mode(&screen);
+
+    tet_clear_tetromino(&screen, &current_tet);
+    tetromino_rotate(&current_tet);
+    tetromino_enum_pixels(&current_tet, &rotate_test_proc, &free);
+
+    screen_disable_dry_mode(&screen);
+    current_tet.rotation = initial_rotation;
+    return free;
 }
 
 void process_events() {
     while (EVENTS_TO_POLL) {
         switch (poll_event()) {
             case BTN_RIGHT: // move to the right
-                move(x_pos + 1, y_pos);
+                move(current_tet.x_pos + 1, current_tet.y_pos);
                 break;
             case BTN_LEFT: // move to the left
-                move(x_pos - 1, y_pos);
+                move(current_tet.x_pos - 1, current_tet.y_pos);
                 break;
-            case BTN_UP:
-                screen_clear_all(&screen);
-                tet_init_tetromino(&current_tet, &rand_state, &screen);
+            case BTN_UP: // rotate current tetromino
+                if (can_rotate()) {
+                    tet_clear_tetromino(&screen, &current_tet);
+                    tetromino_rotate(&current_tet);
+                    update_screen();
+                }
                 break;
             case BTN_DOWN: // drop as far as possible instantly
-                // while (move(x_pos, y_pos + 1));
-                screen_clear_all(&screen);
-                tetromino_rotate(&current_tet);
-                sr_set(&ulu, ~current_tet.rotation);
+                while (move(current_tet.x_pos, current_tet.y_pos + 1));
                 break;
         }
     }
@@ -180,13 +230,9 @@ int main(void) {
     pin_set_mode(&DDRA, PA0, PIN_INPUT);
     adc_enable();
     adc_prescale(ADC_PRESC_128);
-    rand_seed_adc(&rand_state, 0);
+    srand_adc();
 
-    // initialise and show first dot
-    x_pos = random_column();
-    update_screen();
-
-    tet_init_tetromino(&current_tet, &rand_state, &screen);
+    tet_init_tetromino(&current_tet, &screen);
 
     while (1) {
         run_game_tick();
